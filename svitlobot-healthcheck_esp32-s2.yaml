@@ -87,7 +87,7 @@ script:
             - globals.set:
                 id: healthcheck_session
                 value: 'true'
-            - http_request.get: 
+            - http_request.get:
                 url: !lambda |-
                   return ((std::string) "http://hc-ping.com/" + id(healthcheck_key).state).c_str();
                 on_response:

@@ -1,0 +1,291 @@
+substitutions:
+  name: "svitlobot-healthcheck"
+  project_name: "svitlobot.healthcheck"
+  project_version: "0.0.1"
+  comment: "esphome client (esp8266)"
+
+esphome:
+  name: "${name}"
+  name_add_mac_suffix: true
+  comment: $comment
+  build_path: ./.build/$name
+  project:
+    name: "${project_name}"
+    version: "${project_version}"
+
+esp8266:
+#  board: esp01_1m
+  board: d1_mini
+#  board: nodemcuv2
+  restore_from_flash: true
+
+api:
+  reboot_timeout: 0s
+
+ota:
+  - platform: esphome
+
+logger:
+  level: INFO
+
+mdns:
+  disabled: false
+
+web_server:
+  port: 80
+  log: false
+  version: 3
+  ota: false
+#  auth:
+#    username: admin
+#    password: Cdsnkj<jn
+
+wifi:
+  ap: {} # This spawns an AP with the device name and mac address with no password.
+
+captive_portal:
+
+http_request:
+  useragent: "${name} (${project_version})"
+  verify_ssl: false
+  timeout: 2s
+
+globals:
+  - id: healthcheck_send_quality
+    type: int
+    restore_value: no
+    initial_value: '-1'
+
+  - id: healthcheck_session
+    type: bool
+    restore_value: no
+    initial_value: 'false'
+
+  - id: svitlobot_send_quality
+    type: int
+    restore_value: no
+    initial_value: '-1'
+
+  - id: svitlobot_session
+    type: bool
+    restore_value: no
+    initial_value: 'false'
+
+script:
+  - id: healthcheck_send_state
+    then:
+      - if:
+          condition:
+            and:
+              - wifi.connected:
+              - lambda: 'return id(healthcheck_key).has_state();'
+          then:
+            - globals.set:
+                id: healthcheck_session
+                value: 'true'
+            - http_request.get: 
+                url: !lambda |-
+                  return ((std::string) "http://hc-ping.com/" + id(healthcheck_key).state).c_str();
+                on_response:
+                  then:
+                    - lambda: id(healthcheck_set_state)->execute(response->status_code, "");
+                    - globals.set:
+                        id: healthcheck_session
+                        value: 'false'
+            - if:
+                condition:
+                  lambda: 'return id(healthcheck_session);'
+                then:
+                  - script.execute:
+                      id: healthcheck_set_state
+                      code: -1
+                      response: ""
+            - component.update: healthcheck_quality
+    mode: queued
+  - id: svitlobot_send_state
+    then:
+      - if:
+          condition:
+            and:
+              - wifi.connected:
+              - lambda: 'return id(svitlobot_key).has_state();'
+          then:
+            - globals.set:
+                id: svitlobot_session
+                value: 'true'
+            - http_request.get:
+                url: !lambda |-
+                  return ((std::string) "http://api.svitlobot.in.ua/channelPing?channel_key=" + id(svitlobot_key).state).c_str();
+                on_response:
+                  then:
+                    - lambda: id(svitlobot_set_state)->execute(response->status_code, "");
+                    - globals.set:
+                        id: svitlobot_session
+                        value: 'false'
+            - if:
+                condition:
+                  lambda: 'return id(svitlobot_session);'
+                then:
+                  - script.execute:
+                      id: svitlobot_set_state
+                      code: -1
+                      response: ""
+            - component.update: svitlobot_quality
+    mode: queued
+  - id: healthcheck_set_state
+    parameters:
+      code: int
+      response: string
+    then:
+      - lambda: |-
+          if (code == 200)
+          {
+            ESP_LOGD("Healthchecks.io", "Send status - success");
+            id(healthcheck_send_status).publish_state(true);
+            id(healthcheck_send_quality) = id(healthcheck_send_quality) < 0 ? 100 : std::min(100, ++id(healthcheck_send_quality));
+          }
+          else
+          {
+            if (code > 0)
+            {
+              ESP_LOGE("Healthchecks.io", "Send status - not success with response code: %d", code);
+            }
+            id(healthcheck_send_status).publish_state(false);
+            id(healthcheck_send_quality) = id(healthcheck_send_quality) < 0 ? 0 : std::max(0, --id(healthcheck_send_quality));
+          }
+    mode: queued
+  - id: svitlobot_set_state
+    parameters:
+      code: int
+      response: string
+    then:
+      - lambda: |-
+          if (code == 200)
+          {
+            ESP_LOGD("SvitloBot", "Send status - success");
+            id(svitlobot_send_status).publish_state(true);
+            id(svitlobot_send_quality) = id(svitlobot_send_quality) < 0 ? 100 : std::min(100, ++id(svitlobot_send_quality));
+          }
+          else
+          {
+            if (code > 0)
+            {
+              ESP_LOGE("SvitloBot", "Send status - not success with response code: %d", code);
+            }
+            id(svitlobot_send_status).publish_state(false);
+            id(svitlobot_send_quality) = id(svitlobot_send_quality) < 0 ? 0 : std::max(0, --id(svitlobot_send_quality));
+          }
+    mode: queued
+
+interval:
+  - interval: 1min
+    then:
+      - script.execute: healthcheck_send_state
+      - script.execute: svitlobot_send_state
+
+text:
+  - platform: template
+    name: "Healthchecks.io Key"
+    id: healthcheck_key
+    optimistic: true
+    min_length: 0
+    max_length: 36
+    mode: text
+    restore_value: true
+    icon: mdi:key-chain-variant
+    entity_category: config
+    disabled_by_default: true
+  - platform: template
+    name: "SvitloBot Key"
+    id: svitlobot_key
+    optimistic: true
+    min_length: 0
+    max_length: 15
+    mode: text
+    restore_value: true
+    icon: mdi:key-chain-variant
+    entity_category: config
+    disabled_by_default: true
+
+binary_sensor:
+  - platform: template
+    name: "Healthchecks.io Status"
+    id: healthcheck_send_status
+    icon: mdi:lan-connect
+  - platform: template
+    name: "SvitloBot Status"
+    id: svitlobot_send_status
+    icon: mdi:lan-connect
+
+sensor:
+  - platform: template
+    name: "Healthchecks.io Delivery Quality"
+    id: healthcheck_quality
+    lambda: |-
+      if (!id(healthcheck_key).has_state() || id(healthcheck_send_quality) < 0)
+      {
+        return NAN;
+      }
+      return id(healthcheck_send_quality);
+    accuracy_decimals: 0
+    unit_of_measurement: "%"
+    icon: mdi:wan
+    state_class: measurement
+  - platform: template
+    name: "SvitloBot Delivery Quality"
+    id: svitlobot_quality
+    lambda: |-
+      if (!id(svitlobot_key).has_state() || id(svitlobot_send_quality) < 0)
+      {
+        return NAN;
+      }
+      return id(svitlobot_send_quality);
+    accuracy_decimals: 0
+    unit_of_measurement: "%"
+    icon: mdi:wan
+    state_class: measurement
+
+  - platform: uptime
+    name: "SvitloBot Uptime"
+    entity_category: diagnostic
+
+  - platform: wifi_signal
+    name: "SvitloBot WiFi Signal"
+    entity_category: diagnostic
+    icon: mdi:signal
+
+button:
+  - platform: restart
+    name: "SvitloBot Restart"
+    id: Restart
+    entity_category: diagnostic
+    icon: mdi:restart
+
+  - platform: factory_reset
+    name: "SvitloBot Restart with Factory Default Settings"
+    id: Reset
+    entity_category: diagnostic
+    disabled_by_default: true
+
+text_sensor:
+  - platform: version
+    name: SvitloBot ESPHome Version
+    hide_timestamp: true
+    entity_category: diagnostic
+
+  - platform: wifi_info
+    ip_address:
+      name: "SvitloBot IP Address"
+      disabled_by_default: true
+      entity_category: diagnostic
+      icon: mdi:ip
+    ssid:
+      name: "SvitloBot Connected SSID"
+      disabled_by_default: true
+      entity_category: diagnostic
+      icon: mdi:access-point-network
+    mac_address:
+      name: "SvitloBot Mac Address"
+      disabled_by_default: true
+      entity_category: diagnostic
+      icon: mdi:console-network

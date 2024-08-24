@@ -45,7 +45,7 @@ web_server:
 #    password: Cdsnkj<jn
 
 wifi:
-  ap: {} # This spawns an AP with the device name and mac address with no password.
+  ap: {}
 
 captive_portal:
 

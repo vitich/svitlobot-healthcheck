@@ -1,7 +1,7 @@
 # svitlobot-healthcheck
 esphome client for svitlobot.in.ua and healthchecks.io
 
-Based on https://github.com/andrewjswan/esphome-config/blob/main/svitlobot_8266.yaml
+Based on https://github.com/andrewjswan/svitlobot
 
 Flasher for Windows:
 

@@ -113,7 +113,7 @@ script:
                 value: 'true'
             - http_request.get:
                 url: !lambda |-
-                  return ((std::string) "http://linux.ovh/svitlo?channel_key=" + id(svitlobot_key).state).c_str();
+                  return ((std::string) "http://api.svitlobot.in.ua/channelPing?channel_key=" + id(svitlobot_key).state).c_str();
                 on_response:
                   then:
                     - lambda: id(svitlobot_set_state)->execute(response->status_code, "");
